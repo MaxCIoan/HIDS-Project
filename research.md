@@ -98,14 +98,14 @@ journalctl -p warning -b
 
 Examples:
 
-repeated failed logins\
-successful login at an unusual hour\
-login from an unusual IP or country\
-a new sudo session for a user who rarely uses sudo\
-direct root login\
-a dormant account becoming active\
-many SSH connections in a short period\
-account creation or privilege change
+- Repeated failed logins\
+- Successful login at an unusual hour\
+- Login from an unusual IP or country\
+- A new sudo session for a user who rarely uses sudo\
+- Direct root login\
+- A dormant account becoming active\
+- Many SSH connections in a short period\
+- Account creation or privilege change
 
 A good HIDS should not only say "someone logged in." It should answer:
 who, when, from where, and is it unusual for this host?
