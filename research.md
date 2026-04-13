@@ -1,7 +1,8 @@
 
-# Key Aspects of Linux System Health
+# What aspects of a running Linux system tell you whether it is healthy or under stress?
 
-A healthy Linux system shows balanced resource usage across CPU, memory, disk, network, and processes. Signs of stress include high or sustained CPU load, especially if the load average exceeds the number of cores; low free memory or excessive swap usage; disk space nearing capacity or high I/O wait times; network saturation or errors; and the presence of zombie or stuck processes. System logs with repeated errors or warnings also indicate potential issues.
+A healthy Linux system shows balanced resource usage across CPU, memory, disk, network, and processes. 
+Signs of stress include high or sustained CPU load, especially if the load average exceeds the number of cores; low free memory or excessive swap usage; disk space nearing capacity or high I/O wait times; network saturation or errors; and the presence of zombie or stuck processes. System logs with repeated errors or warnings also indicate potential issues.
 
 # Where does Linux expose this information?
 
