@@ -41,14 +41,6 @@ rates. Any zombie processes or processes stuck in an uninterruptible
 sleep state (D) are cause for concern. Finally, repeated or critical
 errors in system logs should never be ignored.
 
-------------------------------------------------------------------------
-
-## Summary
-
-Aspects cover CPU, memory, disk, network, processes, and logs.
-Information sources are exposed via commands, /proc files, and log
-files. Alert thresholds are provided for each aspect to help you
-identify when the system is under stress.
 
 ------------------------------------------------------------------------
 
