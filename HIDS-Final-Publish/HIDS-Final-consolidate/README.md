@@ -1,4 +1,4 @@
-# HIDS-Final-consolidated
+# HIDS-Final-consolidate
 
 A Bash-based Host Intrusion Detection System packaged so your team can clone the repo and run it directly. No `/opt/hids` install step is required.
 
@@ -6,7 +6,7 @@ A Bash-based Host Intrusion Detection System packaged so your team can clone the
 
 ```bash
 git clone https://github.com/MaxCIoan/HIDS-Project.git
-cd HIDS-Project/HIDS-Final-consolidated
+cd HIDS-Project/HIDS-Final-Publish/HIDS-Final-consolidate
 
 # Only needed if your clone loses executable bits
 chmod +x hids.sh baseline.sh live_monitor.sh modules/*.sh
@@ -23,6 +23,7 @@ sudo ./hids.sh
 - `hids.sh` resolves its own path, so it can run from the cloned repo directory.
 - The scripts create `/var/lib/hids` and `/var/log/hids` automatically when run as root.
 - If no baseline exists yet, `hids.sh` initializes one automatically before the first monitoring run.
+- This package also includes a local `.tmp_hids/` tree so the standalone fallback paths already exist inside the cloned project.
 
 ## Common Commands
 
@@ -46,28 +47,33 @@ Default runtime paths are still:
 /var/log/hids
 ```
 
-That keeps baseline and alert data outside the Git clone while letting the code run from any cloned directory.
-
 ## Project Layout
 
 ```text
-HIDS-Final-consolidated/
-├── hids.sh
-├── baseline.sh
-├── live_monitor.sh
-├── config.conf
-├── lib/
-│   └── lib_utils.sh
-└── modules/
-    ├── mod_health.sh
-    ├── mod_users.sh
-    ├── mod_process.sh
-    ├── mod_integrity.sh
-    └── mod_alert.sh
+HIDS-Final-Publish/
+└── HIDS-Final-consolidate/
+    ├── hids.sh
+    ├── baseline.sh
+    ├── live_monitor.sh
+    ├── config.conf
+    ├── .tmp_hids/
+    │   ├── data/
+    │   │   ├── alert_state.db
+    │   │   └── baseline/
+    │   └── output/
+    │       └── alerts.json
+    ├── lib/
+    │   └── lib_utils.sh
+    └── modules/
+        ├── mod_health.sh
+        ├── mod_users.sh
+        ├── mod_process.sh
+        ├── mod_integrity.sh
+        └── mod_alert.sh
 ```
 
 ## Notes
 
 - Run as `root` or with `sudo`.
 - Linux executable bits should be preserved when committed from WSL/Linux.
-- Temporary dev artifacts such as `.tmp_hids/` are ignored by Git in this packaged folder.
+- `.tmp_hids/data/` and `.tmp_hids/output/` are included in this package for local standalone runs.

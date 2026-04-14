@@ -93,7 +93,7 @@ ${C_BOLD}Examples:${C_RESET}
   sudo ./hids.sh --query --severity CRITICAL --last 20
 
 ${C_BOLD}Scheduling:${C_RESET}
-  Add to crontab:  */5 * * * * cd /path/to/HIDS-Final-consolidated && ./hids.sh --once
+  Add to crontab:  */5 * * * * cd /path/to/HIDS-Final-Publish/HIDS-Final-consolidate && ./hids.sh --once
   Or install the provided systemd timer unit.
 
 ${C_BOLD}Config:${C_RESET}
