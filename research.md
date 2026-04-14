@@ -27,6 +27,24 @@ or files like /proc/net/dev. Process health is tracked with ps, top, or
 by inspecting /proc/\[pid\]/status. System logs are found in /var/log/
 and can be viewed with dmesg or journalctl.
 
+Linux exposes health data through /proc, system tools, and logs:
+
+CPU & load: /proc/stat, /proc/loadavg, top, htop, uptime
+
+Memory: /proc/meminfo, free, vmstat
+
+Disk I/O: /proc/diskstats, iostat, iotop
+
+Filesystems: df -h, du, /proc/filesystems
+
+Network: /proc/net/dev, ss, netstat, sar -n
+
+Processes: ps, /proc/<pid>/
+
+Logs: journalctl, /var/log/*
+
+Sensors: sensors, /sys/class/thermal/
+
 ------------------------------------------------------------------------
 
 ## What values or thresholds would indicate a problem worth alerting on?
