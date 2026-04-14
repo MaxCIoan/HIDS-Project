@@ -11,7 +11,7 @@ cd HIDS-Project/HIDS-Final-consolidated
 # Only needed if your clone loses executable bits
 chmod +x hids.sh baseline.sh live_monitor.sh modules/*.sh
 
-# Recommended on a known-clean system
+# Recommended on a known-clean system - It tells the security software to record the current state of your system so it can detect unauthorized changes later.
 sudo ./hids.sh --baseline
 
 # One-shot monitoring run
