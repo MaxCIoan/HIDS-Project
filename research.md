@@ -10,7 +10,7 @@ A healthy Linux system shows balanced resource usage across CPU, memory,
 disk, network, and processes. Signs of stress include high or sustained
 CPU load, especially if the load average exceeds the number of cores;
 low free memory or excessive swap usage; disk space nearing capacity or
-high I/O wait times; network saturation or errors; and the presence of
+high Input/Ouput wait times; network saturation or errors; and the presence of
 zombie or stuck processes. System logs with repeated errors or warnings
 also indicate potential issues.
 
@@ -21,7 +21,7 @@ also indicate potential issues.
 Linux provides real-time system information through both commands and
 the /proc filesystem. For CPU, use tools like top, htop, or mpstat, or
 check /proc/stat and /proc/loadavg. Memory status is available via free
-or /proc/meminfo. Disk usage and I/O can be monitored with df, iostat,
+or /proc/meminfo. Disk usage and Input/Ouput can be monitored with df, iostat,
 or /proc/diskstats. Network activity is visible through netstat, iftop,
 or files like /proc/net/dev. Process health is tracked with ps, top, or
 by inspecting /proc/\[pid\]/status. System logs are found in /var/log/
