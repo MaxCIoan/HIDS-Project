@@ -143,15 +143,15 @@ journalctl _COMM=sshd --since "1 hour ago"
 
 ### Possible
 
-Detect logins, failed logins, sudo use, SSH events\
-Correlate users with terminals and remote IPs\
-Flag anomalies based on simple Bash rules
+- Detect logins, failed logins, sudo use, SSH events
+- Correlate users with terminals and remote IPs
+- Flag anomalies based on simple Bash rules
 
 ### Not fully possible with Bash alone
 
-Strong behavioral analytics\
-geolocation or reputation checks without outside data\
-perfect attribution if logs are missing or rotated
+- Strong behavioral analytics
+- Geolocation or reputation checks without outside data
+- Perfect attribution if logs are missing or rotated
 
 ------------------------------------------------------------------------
 
