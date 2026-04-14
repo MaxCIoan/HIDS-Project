@@ -1,4 +1,4 @@
-﻿# HIDS-Final-consolidated
+# HIDS-Final-consolidated
 
 A Bash-based Host Intrusion Detection System packaged so your team can clone the repo and run it directly. No `/opt/hids` install step is required.
 

@@ -84,6 +84,12 @@ check_off_hours_logins() {
     # configured OFF_HOURS. Only checks logins from the last 24 hours.
     [[ -z "${OFF_HOURS}" ]] && return
 
+    if ! command -v last &>/dev/null; then
+        print_info "last not available — skipping off-hours login history check"
+        report_line "Off-hours login history: skipped (last unavailable)"
+        return
+    fi
+
     IFS=',' read -ra off_hours_list <<< "${OFF_HOURS}"
 
     last -F -w 2>/dev/null | grep -v '^reboot\|^wtmp\|^ ' | \

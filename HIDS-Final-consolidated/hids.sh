@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
 # hids.sh — HIDS Orchestrator
 # =============================================================================
@@ -40,10 +40,11 @@ RUN_EPOCH=$(epoch_now)
 
 check_dependencies() {
     # Verifies that required external commands are available.
-    # HIDS is designed to use as few external tools as possible, but some checks
-    # depend on: ss, sha256sum, find, stat, awk, who, last, lastlog.
+    # HIDS is designed to use as few external tools as possible. Optional tools
+    # like last/lastlog improve login-history coverage but should not block runs.
     local missing=()
-    local required=(ss sha256sum find stat awk sort uniq wc who last)
+    local required=(ss sha256sum find stat awk sort uniq wc who)
+    local optional=(last lastlog)
 
     for cmd in "${required[@]}"; do
         command -v "${cmd}" &>/dev/null || missing+=("${cmd}")
@@ -54,6 +55,13 @@ check_dependencies() {
             "${C_RED}" "${missing[*]}" "${C_RESET}" >&2
         exit 1
     fi
+
+    for cmd in "${optional[@]}"; do
+        if ! command -v "${cmd}" &>/dev/null; then
+            printf '%sWarning:%s optional command not found: %s\n' \
+                "${C_YELLOW}" "${C_RESET}" "${cmd}" >&2
+        fi
+    done
 }
 
 # =============================================================================
