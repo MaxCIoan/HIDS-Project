@@ -35,7 +35,7 @@ Alerts should be triggered when the load average exceeds the number of
 CPU cores over 1, 5, or 15 minutes, or if CPU usage stays above 90% for
 extended periods. Memory issues arise when free memory drops below 10%
 or swap usage exceeds 10% of total RAM. For disks, alert if usage
-surpasses 90% or if I/O wait is consistently above 20%. Network alerts
+surpasses 90% or if Input/Output wait is consistently above 20%. Network alerts
 should fire for saturation above 90% or any sustained error or drop
 rates. Any zombie processes or processes stuck in an uninterruptible
 sleep state (D) are cause for concern. Finally, repeated or critical
