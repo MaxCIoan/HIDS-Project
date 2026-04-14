@@ -188,27 +188,28 @@ We evaluate suspicion based on four pillars:
   -----------------------------------------------------------------------
   Indicator              Suspicious Attribute
   ---------------------- ------------------------------------------------
-  1) Path (Binary Location) Processes running from "world-writable" or
+  1) Path (Binary Location): Processes running from "world-writable" or
                          temporary directories like /tmp, /dev/shm, or
                          /var/tmp. Legitimate binaries should reside in
                          /usr/bin, /usr/sbin, etc.
 
-  2) Ownership (User)       A web server user (www-data or apache) owning an
+  2) Ownership (User):       A web server user (www-data or apache) owning an
                          interactive shell (sh, bash) or a high-privilege
                          process running under a low-privilege user
                          account.
 
-  3) Resource Usage         Sudden, sustained spikes in CPU or RAM without a
+  3) Resource Usage:         Sudden, sustained spikes in CPU or RAM without a
                          known business reason, which could indicate
                          cryptominers or data exfiltration compression.
 
-  4) Hidden Processes       A process that appears in /proc but is hidden
+  4) Hidden Processes:       A process that appears in /proc but is hidden
                          from the ps command (often an indicator of a
                          rootkit).
+    
+ Info:
+ Oprhan Processes: A Process whose parent has died (PPID 1) unexpectedly, which may be a technique to bypass session monitoring
 
-  Orphan Processes       A process whose parent has died (PPID 1)
-                         unexpectedly, which may be a technique to bypass
-                         session monitoring.
+
   -----------------------------------------------------------------------
 
 
