@@ -1,0 +1,9 @@
+[Unit]
+Description=HIDS One-shot scan
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hids/hids.sh --once
+StandardOutput=journal
+StandardError=journal

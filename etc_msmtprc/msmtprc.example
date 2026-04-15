@@ -1,0 +1,17 @@
+# Configuration msmtp globale
+defaults
+auth           on
+tls            on
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+logfile        /var/log/msmtp.log
+
+# Compte Gmail
+account        gmail
+host           smtp.gmail.com
+port           587
+from           YOUR_EMAIL@gmail.com
+user           YOUR_EMAIL@gmail.com
+password       YOUR_APP_PASSWORD_HERE
+
+# Compte par défaut
+account default : gmail

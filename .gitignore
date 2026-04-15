@@ -1,0 +1,13 @@
+# Never commit real credentials
+etc_msmtprc/msmtprc
+
+# Backup files
+*.bak
+
+# Runtime data — machine-specific
+var_lib_hids/hids/baseline/
+var_lib_hids/hids/history/
+var_lib_hids/hids/network_baseline/
+var_lib_hids/hids/alert_state.db
+var_log_hids/hids/alerts.json
+var_log_hids/hids/report.txt
