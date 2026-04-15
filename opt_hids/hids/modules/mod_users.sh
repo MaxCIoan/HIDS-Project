@@ -203,6 +203,300 @@ check_failed_logins() {
 # SUDO ACTIVITY
 # =============================================================================
 check_sudo_activity() {
+    section_header "🔑 Sudo Activity Details (24h)"
+
+    [[ -z "${_AUTH_LOG}" ]] && ok_box "$(badge INFO) No auth log available" && return
+
+    local sudo_lines
+    if command -v journalctl &>/dev/null; then
+        sudo_lines=$(journalctl --since "24 hours ago" 2>/dev/null | grep "sudo:" || true)
+    else
+        sudo_lines=$(tail -5000 "${_AUTH_LOG}" 2>/dev/null | grep "sudo:" || true)
+    fi
+
+    # Filter for failures
+    local sudo_failures
+    sudo_failures=$(echo "${sudo_lines}" | grep -iE "incorrect|failure|NOT in sudoers" || true)
+
+    if [[ -z "${sudo_failures}" ]]; then
+        ok_box "$(badge OK) No failed sudo attempts in last 24h"
+        return
+    fi
+
+    # Build the Detail Table
+    local rows=()
+    rows+=("$(gum style --bold --foreground 212 "$(printf '%-16s %-12s %s' 'TIMESTAMP' 'USER' 'REASON')")")
+    rows+=("$(gum style --foreground 240 "$(printf '%-16s %-12s %s' '────────────────' '────────────' '──────────────')")")
+
+    while IFS= read -r line; do
+        # Extracting data using awk based on standard /var/log/auth.log format
+        local timestamp user reason
+        timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
+        user=$(echo "$line" | grep -oP '(?<=user=)\S+' || echo "unknown")
+        
+        # Determine the reason for the display
+        if [[ "$line" == *"NOT in sudoers"* ]]; then
+            reason="Unauthorized"
+        else
+            reason="Wrong Password"
+        fi
+
+        rows+=("$(gum style --foreground 196 "$(printf '%-16s %-12s %s' "$timestamp" "$user" "$reason")")")
+        
+        # Trigger your existing alert logic
+        emit_alert --severity WARN --module "${MOD}" --event sudo_failure \
+            --detail "Failed sudo: $user ($reason)" --target "$user"
+        _flag 1
+    done <<< "${sudo_failures}"
+
+    warn_box \
+        "$(gum style --foreground 196 --bold "🚨 Detected Failed Sudo Attempts")" \
+        "" \
+        "${rows[@]}"
+}
+
+# =============================================================================
+# NOUVEAUX COMPTES
+# =============================================================================
+check_new_accounts() {
+    section_header "👥 User Accounts"
+
+    local bl_users="${HIDS_DATA_DIR}/baseline/users.list"
+    if [[ ! -f "${bl_users}" ]]; then
+        info_box "$(badge INFO) No user baseline — skipping account diff"
+        return
+    fi
+
+    local new_accounts
+    new_accounts=$(awk -F: '{print $1":"$3}' /etc/passwd | \
+        while IFS=: read -r uname uid; do
+            grep -q "^${uname}:" "${bl_users}" 2>/dev/null || echo "${uname}:${uid}"
+        done || true)
+
+    # UID 0 check
+    local uid0_count
+    uid0_count=$(awk -F: '$3 == 0' /etc/passwd | wc -l)
+    local uid0_users
+    uid0_users=$(awk -F: '$3 == 0 {print $1}' /etc/passwd | tr '\n' ' ')
+
+    if [[ -z "${new_accounts}" && "${uid0_count}" -le 1 ]]; then
+        ok_box \
+            "$(badge OK) No new user accounts since baseline" \
+            "$(badge OK) UID 0 account: ${uid0_users}(root only — expected)"
+        return
+    fi
+
+    if [[ -n "${new_accounts}" ]]; then
+        while IFS=: read -r uname uid; do
+            local sev="WARN"
+            [[ "${uid}" -eq 0 ]] && sev="CRITICAL"
+            emit_alert --severity "${sev}" --module "${MOD}" --event new_account \
+                --detail "User account created since baseline: ${uname} (uid=${uid})" \
+                --target "${uname}"
+            _flag 2
+        done <<< "${new_accounts}"
+
+        alert_box \
+            "$(gum style --foreground 196 --bold "🚨 New accounts detected since baseline:")" \
+            "" \
+            "$(echo "${new_accounts}" | while IFS=: read -r u id; do
+                echo "  $(badge ALERT) ${u} (uid=${id})"
+            done)"
+    fi
+
+    if [[ "${uid0_count}" -gt 1 ]]; then
+        alert_box \
+            "$(gum style --foreground 196 --bold "🚨 Multiple UID 0 accounts: ${uid0_users}")"
+        emit_alert --severity CRITICAL --module "${MOD}" --event uid0_duplicate \
+            --detail "Multiple UID 0 accounts: ${uid0_users}" --target "/etc/passwd"
+        _flag 2
+    fi
+}
+
+# =============================================================================
+# GROUPES SENSIBLES
+# =============================================================================
+check_group_membership() {
+    section_header "🔒 Sensitive Group Membership"
+
+    local bl_groups="${HIDS_DATA_DIR}/baseline/groups.list"
+    if [[ ! -f "${bl_groups}" ]]; then
+        info_box "$(badge INFO) No group baseline — skipping"
+        return
+    fi
+
+    local rows=()
+    rows+=("$(gum style --bold --foreground 212 "$(printf '%-12s %-30s %s' 'GROUP' 'MEMBERS' 'STATUS')")")
+    rows+=("$(gum style --foreground 240 "$(printf '%-12s %-30s %s' '────────────' '──────────────────────────────' '──────')")")
+
+    local has_changes=0
+    IFS=',' read -ra sensitive_list <<< "${SENSITIVE_GROUPS}"
+    for grp in "${sensitive_list[@]}"; do
+        local current_members baseline_members new_members
+        current_members=$(awk -F: -v g="${grp}" '$1==g {print $4}' /etc/group 2>/dev/null || echo "")
+        baseline_members=$(awk -F: -v g="${grp}" '$1==g {print $3}' "${bl_groups}" 2>/dev/null || echo "")
+
+        local current_sorted baseline_sorted
+        current_sorted=$(echo "${current_members}" | tr ',' '\n' | sort)
+        baseline_sorted=$(echo "${baseline_members}" | tr ',' '\n' | sort)
+        new_members=$(comm -23 <(echo "${current_sorted}") <(echo "${baseline_sorted}") | tr '\n' ' ')
+
+        if [[ -n "${new_members// /}" ]]; then
+            rows+=("$(gum style --foreground 196 "$(printf '%-12s %-30s %s' "${grp}" "${new_members}" "⚠ CHANGED")")")
+            emit_alert --severity CRITICAL --module "${MOD}" --event group_membership_change \
+                --detail "New member(s) in group '${grp}': ${new_members}" --target "${grp}"
+            _flag 2
+            has_changes=1
+        else
+            rows+=("$(gum style --foreground 82 "$(printf '%-12s %-30s %s' "${grp}" "${current_members:-none}" "✓ unchanged")")")
+        fi
+    done
+
+    local box_color=82
+    [[ $has_changes -eq 1 ]] && box_color=196
+
+    gum style \
+        --border rounded --border-foreground "${box_color}" \
+        --width 70 --padding "0 1" \
+        "${rows[@]}"
+}
+
+# =============================================================================
+# SSH AUTHORIZED KEYS
+# =============================================================================
+check_authorized_keys() {
+    section_header "🗝️  SSH Authorized Keys"
+
+    local modified_keys=0
+    local bl_epoch=0
+
+    [[ -f "${HIDS_DATA_DIR}/baseline/meta.conf" ]] && \
+        bl_epoch=$(awk -F= '/BASELINE_EPOCH/{print $2}' \
+            "${HIDS_DATA_DIR}/baseline/meta.conf" 2>/dev/null || echo 0)
+
+    while IFS=: read -r uname _ uid _ _ home _; do
+        local keyfile="${home}/.ssh/authorized_keys"
+        [[ ! -f "${keyfile}" ]] && continue
+        local file_mtime
+        file_mtime=$(stat -c %Y "${keyfile}" 2>/dev/null || echo 0)
+        if [[ "${file_mtime}" -gt "${bl_epoch}" ]]; then
+            alert_box \
+                "$(gum style --foreground 196 --bold "🚨 authorized_keys modified: ${keyfile}")" \
+                "   User: ${uname} | Modified: $(date -d @${file_mtime} '+%Y-%m-%d %H:%M:%S')"
+            emit_alert --severity CRITICAL --module "${MOD}" --event authorized_keys_modified \
+                --detail "SSH authorized_keys modified since baseline: ${keyfile} (user: ${uname})" \
+                --target "${keyfile}"
+            _flag 2
+            (( modified_keys++ )) || true
+        fi
+    done < /etc/passwd
+
+    [[ "${modified_keys}" -eq 0 ]] && \
+        ok_box "$(badge OK) No authorized_keys modifications detected"
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+main() {
+    # Header
+    echo ""
+    gum style \
+        --foreground 212 --border-foreground 212 --border double \
+        --align center --width 72 --padding "1 2" \
+        "👤  HIDS — USER ACTIVITY MONITOR" \
+        "Host: $(hostname) | $(date '+%Y-%m-%d %H:%M:%S')"
+
+    check_current_sessions
+    check_failed_logins
+    check_sudo_activity
+    check_new_accounts
+    check_group_membership
+    check_authorized_keys
+
+    # Assessment
+    echo ""
+    local assess_color=82
+    local assess_icon="✅"
+    local assess_msg="All user activity checks passed"
+    case "${_worst}" in
+        1) assess_color=214; assess_icon="⚠️ "; assess_msg="Some user activity requires attention" ;;
+        2) assess_color=196; assess_icon="🚨"; assess_msg="Critical user activity detected!" ;;
+    esac
+
+    gum style \
+        --border double --border-foreground "${assess_color}" \
+        --align center --width 72 --padding "0 2" \
+        "$(gum style --foreground "${assess_color}" --bold "${assess_icon}  ASSESSMENT: ${assess_msg}")"
+    echo ""
+
+    return "${_worst}"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    load_config
+    main
+    exit "${_worst}"
+fi
+
+
+# =============================================================================
+# FAILED LOGINS
+# =============================================================================
+check_failed_logins() {
+    section_header "🔐 Failed Login Attempts (24h)"
+
+    [[ -z "${_AUTH_LOG}" ]] && ok_box "$(badge INFO) No auth log available" && return
+
+    local failures
+    if command -v journalctl &>/dev/null; then
+        failures=$(journalctl -u sshd --since "24 hours ago" 2>/dev/null | \
+            grep "Failed password\|Invalid user\|authentication failure" || true)
+    else
+        failures=$(tail -5000 "${_AUTH_LOG}" 2>/dev/null | \
+            grep "Failed password\|Invalid user\|authentication failure" || true)
+    fi
+
+    if [[ -z "${failures}" ]]; then
+        ok_box "$(badge OK) No failed login attempts in last 24h"
+        return
+    fi
+
+    local total_failures
+    total_failures=$(echo "${failures}" | wc -l)
+
+    # Top IPs
+    local rows=()
+    rows+=("$(gum style --bold --foreground 212 "$(printf '%-8s %-18s %s' 'COUNT' 'SOURCE IP' 'STATUS')")")
+    rows+=("$(gum style --foreground 240 "$(printf '%-8s %-18s %s' '────────' '──────────────────' '──────')")")
+
+    while IFS= read -r line; do
+        local count ip
+        count=$(echo "${line}" | awk '{print $1}')
+        ip=$(echo "${line}" | awk '{print $2}')
+
+        if [[ "${count}" -ge "${THRESHOLD_FAILED_LOGINS}" ]]; then
+            rows+=("$(gum style --foreground 196 "$(printf '%-8s %-18s %s' "${count}" "${ip}" "⚠ BRUTE FORCE")")")
+            emit_alert --severity CRITICAL --module "${MOD}" --event brute_force \
+                --detail "Source IP ${ip} has ${count} failed login attempts (threshold: ${THRESHOLD_FAILED_LOGINS})" \
+                --target "${ip}"
+            _flag 2
+        else
+            rows+=("$(gum style --foreground 214 "$(printf '%-8s %-18s %s' "${count}" "${ip}" "REVIEW")")")
+            _flag 1
+        fi
+    done < <(echo "${failures}" | grep -oP '(\d+\.){3}\d+' 2>/dev/null | sort | uniq -c | sort -rn | head -10)
+
+    warn_box \
+        "$(gum style --foreground 214 --bold "⚠  Total failed attempts: ${total_failures}")" \
+        "" \
+        "${rows[@]}"
+}
+
+# =============================================================================
+# SUDO ACTIVITY
+# =============================================================================
+check_sudo_activity() {
     section_header "🔑 Sudo Activity (24h)"
 
     [[ -z "${_AUTH_LOG}" ]] && ok_box "$(badge INFO) No auth log available" && return
