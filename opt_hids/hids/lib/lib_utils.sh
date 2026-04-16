@@ -14,6 +14,8 @@
 [[ -n "${_LIB_UTILS_LOADED:-}" ]] && return 0
 readonly _LIB_UTILS_LOADED=1
 
+_LAST_MAIL_ERROR=""
+
 # =============================================================================
 # DEFAULTS — overridden by config.conf if loaded
 # =============================================================================
@@ -25,7 +27,8 @@ readonly _LIB_UTILS_LOADED=1
 : "${LOG_MIN_SEVERITY:=INFO}"
 : "${DISPLAY_MIN_SEVERITY:=WARN}"
 : "${EMAIL_MIN_SEVERITY:=CRITICAL}"
-: "${EMAIL_SEND_TIMEOUT_SECONDS:=5}"
+: "${EMAIL_SEND_TIMEOUT_SECONDS:=20}"
+: "${EMAIL_SETUP_TEST_TIMEOUT_SECONDS:=30}"
 : "${DEDUP_WINDOW_SECONDS:=300}"
 : "${ALERT_LOG_MAX_LINES:=10000}"
 : "${ALERT_EMAIL:=}"
@@ -35,6 +38,7 @@ readonly _LIB_UTILS_LOADED=1
 : "${SMTP_HOST:=smtp.gmail.com}"
 : "${SMTP_PORT:=587}"
 : "${SMTP_TLS:=on}"
+: "${SMTP_TLS_STARTTLS:=on}"
 : "${SMTP_FROM:=${ALERT_EMAIL}}"
 : "${HIDS_HOSTNAME:=}"
 
@@ -305,7 +309,7 @@ _mail_config_ready() {
     [[ -n "${ALERT_EMAIL}" ]] || return 1
     command -v "${MAIL_CMD}" >/dev/null 2>&1 || return 1
 
-    if [[ "${MAIL_CMD}" == "msmtp" && -n "${MSMTP_CONFIG_FILE:-}" ]]; then
+    if [[ "${MAIM_CMD}" == "msmtp" && -n "${MSMTP_CONFIG_FILE:-}" ]]; then
         [[ -r "${MSMTP_CONFIG_FILE}" ]] || return 1
     fi
 
@@ -313,23 +317,30 @@ _mail_config_ready() {
 }
 
 _send_mail_message() {
-    local recipient="$1" subject="$2" body="$3"
+    local recipient="$1" subject="$2" body="$3" timeout_seconds="${4:-${EMAIL_SEND_TIMEOUT_SECONDS}}"
     local from_addr="${SMTP_FROM:-${ALERT_EMAIL:-${recipient}}}"
     local rc=0
-    local -a mail_cmd=("${MAIL_CMD}")
+    local -a mail_cmd=("${MAIM_CMD}")
+    local err_file=""
+
+    _LAST_MAIL_ERROR=""
 
     if ! command -v "${MAIL_CMD}" >/dev/null 2>&1; then
-        echo "[lib_utils] Warning: mail command not found: ${MAIL_CMD}" >&2
+        _LAST_MAIL_ERROR="mail command not found: ${MAIL_CMD}"
+        echo "[lib_utils] Warning: ${_LAST_MAIL_ERROR}" >&2
         return 1
     fi
 
     if [[ "${MAIL_CMD}" == "msmtp" && -n "${MSMTP_CONFIG_FILE:-}" ]]; then
         if [[ ! -r "${MSMTP_CONFIG_FILE}" ]]; then
-            echo "[lib_utils] Warning: msmtp config not found: ${MSMTP_CONFIG_FILE}" >&2
+            _LAST_MAIL_ERROR="msmtp config not found: ${MSMTP_CONFIG_FILE}"
+            echo "[lib_utils] Warning: ${_LAST_MAIL_ERROR}" >&2
             return 1
         fi
         mail_cmd+=("--file=${MSMTP_CONFIG_FILE}")
     fi
+
+    err_file=$(mktemp "${HIDS_DATA_DIR}/.mail.XXXXXX" 2>/dev/null || mktemp)
 
     if command -v timeout >/dev/null 2>&1; then
         {
@@ -338,7 +349,7 @@ _send_mail_message() {
             printf 'Subject: %s\n' "${subject}"
             printf 'Content-Type: text/plain; charset=UTF-8\n\n'
             printf '%s\n' "${body}"
-        } | timeout "${EMAIL_SEND_TIMEOUT_SECONDS}s" "${mail_cmd[@]}" "${recipient}" >/dev/null 2>&1
+        } | timeout "${timeout_seconds}s" "${mail_cmd[@]}" "${recipient}" >/dev/null 2>"${err_file}"
         rc=$?
     else
         {
@@ -347,20 +358,26 @@ _send_mail_message() {
             printf 'Subject: %s\n' "${subject}"
             printf 'Content-Type: text/plain; charset=UTF-8\n\n'
             printf '%s\n' "${body}"
-        } | "${mail_cmd[@]}" "${recipient}" >/dev/null 2>&1
+        } | "${mail_cmd[@]}" "${recipient}" >/dev/null 2>"${err_file}"
         rc=$?
     fi
 
     if [[ "${rc}" -eq 124 ]]; then
-        echo "[lib_utils] Warning: email alert timed out after ${EMAIL_SEND_TIMEOUT_SECONDS}s via ${MAIL_CMD}" >&2
+        _LAST_MAIL_ERROR="email alert timed out after ${timeout_seconds}s via ${MAIL_CMD}"
+        echo "[lib_utils] Warning: ${_LAST_MAIL_ERROR}" >&2
+        rm -f "${err_file}"
         return 1
     fi
 
     if [[ "${rc}" -ne 0 ]]; then
-        echo "[lib_utils] Warning: failed to send email via ${MAIL_CMD}" >&2
+        _LAST_MAIL_ERROR=$(tr '\n' ' ' < "${err_file}" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')
+        [[ -n "${_LAST_MAIL_ERROR}" ]] || _LAST_MAIL_ERROR="failed to send email via ${MAIL_CMD}"
+        echo "[lib_utils] Warning: ${_LAST_MAIL_ERROR}" >&2
+        rm -f "${err_file}"
         return 1
     fi
 
+    rm -f "${err_file}"
     return 0
 }
 
@@ -435,12 +452,16 @@ _persist_email_setup() {
     local config_local_path msmtp_file config_dir mail_dir
 
     config_local_path=$(_hids_local_config_path)
-    msmtp_file="${MSMTP_CONFIG_FILE:-${HIDS_DATA_DIR}/msmtp.conf}"
-
     config_dir=$(dirname "${config_local_path}")
+    msmtp_file="${MSMTP_CONFIG_FILE:-}"
+
     if ! mkdir -p "${config_dir}" 2>/dev/null; then
         echo "[lib_utils] Warning: cannot create config directory ${config_dir}" >&2
         return 1
+    fi
+
+    if [[ -z "${msmtp_file}" || "${msmtp_file}" == "${HIDS_DATA_DIR}/msmtp.conf" ]]; then
+        msmtp_file="${config_dir}/msmtp.conf"
     fi
 
     mail_dir=$(dirname "${msmtp_file}")
@@ -463,6 +484,7 @@ EOF
 defaults
 auth           on
 tls            ${SMTP_TLS:-on}
+tls_starttls   ${SMTP_TLS_STARTTLS:-on}
 tls_trust_file /etc/ssl/certs/ca-certificates.crt
 account        ${SMTP_ACCOUNT:-gmail}
 host           ${SMTP_HOST:-smtp.gmail.com}
@@ -473,6 +495,10 @@ password       ${password}
 account default : ${SMTP_ACCOUNT:-gmail}
 EOF
     chmod 600 "${msmtp_file}" 2>/dev/null || true
+
+    if [[ "$(id -u)" -eq 0 && -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        chown "${SUDO_UID}:${SUDO_GID}" "${config_local_path}" "${msmtp_file}" 2>/dev/null || true
+    fi
 
     return 0
 }
@@ -504,12 +530,13 @@ configure_email_interactively() {
     test_subject="[HIDS] email configuration test"
     test_body=$(printf 'HIDS email alerts are now configured for %s on %s.\n' "${ALERT_EMAIL}" "${_HIDS_HOST}")
 
-    if _send_mail_message "${ALERT_EMAIL}" "${test_subject}" "${test_body}"; then
+    if _send_mail_message "${ALERT_EMAIL}" "${test_subject}" "${test_body}" "${EMAIL_SETUP_TEST_TIMEOUT_SECONDS}"; then
         print_ok "Email alerts configured for ${ALERT_EMAIL}"
         print_ok "Test email sent successfully"
         return 0
     fi
 
+    [[ -n "${_LAST_MAIL_ERROR:-}" ]] && print_warn "Mail test failed: ${_LAST_MAIL_ERROR}"
     print_warn "Email settings were saved, but the test email failed"
     return 1
 }

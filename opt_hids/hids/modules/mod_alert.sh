@@ -45,6 +45,22 @@ counter_box() {
         "$(badge "${status}") ${msg}"
 }
 
+ok_box()    { gum style --border rounded --border-foreground 82  --width 68 --padding "0 2" "$@"; }
+warn_box()  { gum style --border rounded --border-foreground 214 --width 68 --padding "0 2" "$@"; }
+alert_box() { gum style --border rounded --border-foreground 196 --width 68 --padding "0 2" "$@"; }
+info_box()  { gum style --border rounded --border-foreground 33  --width 68 --padding "0 2" "$@"; }
+
+counter_box() {
+    local title="$1" count="$2" status="$3" msg="$4"
+    local color=82
+    [[ "$status" == "REVIEW" ]] && color=214
+    [[ "$status" == "ALERT"  ]] && color=196
+    gum style --border rounded --border-foreground "${color}" --width 21 --padding "0 1" \
+        "$(gum style --foreground "${color}" --bold "${title}")" \
+        "$(gum style --foreground 255 --bold "  ${count}")" \
+        "$(badge "${status}") ${msg}"
+}
+
 # =============================================================================
 # ALERT LOG STATISTICS
 # =============================================================================
@@ -219,7 +235,11 @@ send_email_digest() {
         return 0
     fi
 
-    warn_box "$(badge REVIEW) Failed to send email digest via ${MAIL_CMD}"
+    if [[ -n "${_LAST_MAIL_ERROR:-}" ]]; then
+        warn_box "$(badge REVIEW) Failed to send email digest via ${MAIL_CMD}" "   ${_LAST_MAIL_ERROR}"
+    else
+        warn_box "$(badge REVIEW) Failed to send email digest via ${MAIM_CMD}"
+    fi
     return 1
 }
 
