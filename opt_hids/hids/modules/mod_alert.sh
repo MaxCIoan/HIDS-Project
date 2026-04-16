@@ -192,11 +192,13 @@ generate_report() {
 # EMAIL DIGEST
 # =============================================================================
 send_email_digest() {
-    [[ -z "${ALERT_EMAIL}" ]] && return
-
     local crit_count
     crit_count=$(count_by_severity CRITICAL)
-    [[ "${crit_count}" -eq 0 ]] && return
+    [[ "${crit_count}" -eq 0 ]] && return 0
+
+    if ! _mail_config_ready; then
+        return 1
+    fi
 
     local subject="[HIDS CRITICAL] ${crit_count} critical finding(s) on ${_HIDS_HOST}"
     local body
@@ -212,10 +214,13 @@ send_email_digest() {
         printf 'Full report:    %s\n' "${REPORT_FILE}"
     )
 
-    echo "${body}" | \
-        "${MAIL_CMD}" "${ALERT_EMAIL}" 2>/dev/null && \
-        ok_box "$(badge OK) Email digest sent to ${ALERT_EMAIL}" || \
-        warn_box "$(badge REVIEW) Failed to send email digest via ${MAIL_CMD}"
+    if _send_mail_message "${ALERT_EMAIL}" "${subject}" "${body}"; then
+        ok_box "$(badge OK) Email digest sent to ${ALERT_EMAIL}"
+        return 0
+    fi
+
+    warn_box "$(badge REVIEW) Failed to send email digest via ${MAIL_CMD}"
+    return 1
 }
 
 # =============================================================================
@@ -273,8 +278,16 @@ cmd_query() {
 # MAIN
 # =============================================================================
 main() {
+    local digest_status=0
+
     generate_report
-    send_email_digest
+    send_email_digest || digest_status=$?
+
+    if [[ "${digest_status}" -ne 0 ]]; then
+        maybe_prompt_email_setup failed || true
+    elif ! _mail_config_ready; then
+        maybe_prompt_email_setup missing || true
+    fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -286,3 +299,4 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         main
     fi
 fi
+

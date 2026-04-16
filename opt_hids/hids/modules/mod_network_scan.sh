@@ -2,7 +2,7 @@
 # =============================================================================
 # mod_network_scan.sh — Network Scanner Module for HIDS (GUM Edition)
 # =============================================================================
-# Scans target hosts on lab-net (192.168.0.0/24) and alerts on changes.
+# Scans target hosts on lab-net (192.168.0.0/30 by default) and alerts on changes.
 # Compares current open ports against a stored baseline.
 # =============================================================================
 
@@ -19,7 +19,7 @@ _flag() { [[ $1 -gt $_worst ]] && _worst=$1; }
 
 # --- Configuration ---
 MY_IP="192.168.0.41"
-SCAN_NETWORK="192.168.0.0/24"
+SCAN_NETWORK="${SCAN_NETWORK:-192.168.0.0/30}"
 BASELINE_DIR="${HIDS_DATA_DIR}/network_baseline"
 mkdir -p "${BASELINE_DIR}"
 
@@ -122,9 +122,9 @@ scan_host() {
 
     section_header "🌐 Port Scan — ${target}"
 
-    gum style --foreground 245 "  Scanning all ports... (please wait)"
+    gum style --foreground 245 "  Scanning top 100 ports... (please wait)"
 
-    nmap -sT --open -p- --min-rate 1000 -T4 "${target}" 2>/dev/null | \
+    nmap -sT --open --top-ports "${NETWORK_SCAN_TOP_PORTS:-100}" --min-rate 1000 -T4 "${target}" 2>/dev/null | \
         awk '/^[0-9]+\/tcp.*open/{print $1}' | \
         sort > "${current_file}"
 
@@ -284,3 +284,5 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main
     exit "${_worst}"
 fi
+
+

@@ -1,17 +1,18 @@
-# Configuration msmtp globale
+# Global msmtp configuration example
+# Copy this to /etc/msmtprc only if you prefer managing mail outside HIDS.
 defaults
 auth           on
 tls            on
 tls_trust_file /etc/ssl/certs/ca-certificates.crt
 logfile        /var/log/msmtp.log
 
-# Compte Gmail
+# Gmail account example
 account        gmail
 host           smtp.gmail.com
 port           587
-from           YOUR_EMAIL@gmail.com
-user           YOUR_EMAIL@gmail.com
-password       YOUR_APP_PASSWORD_HERE
+from           your_email@gmail.com
+user           your_email@gmail.com
+password       your_app_password_here
 
-# Compte par défaut
+# Default account
 account default : gmail

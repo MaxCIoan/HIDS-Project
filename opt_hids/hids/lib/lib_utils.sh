@@ -25,10 +25,17 @@ readonly _LIB_UTILS_LOADED=1
 : "${LOG_MIN_SEVERITY:=INFO}"
 : "${DISPLAY_MIN_SEVERITY:=WARN}"
 : "${EMAIL_MIN_SEVERITY:=CRITICAL}"
+: "${EMAIL_SEND_TIMEOUT_SECONDS:=5}"
 : "${DEDUP_WINDOW_SECONDS:=300}"
 : "${ALERT_LOG_MAX_LINES:=10000}"
 : "${ALERT_EMAIL:=}"
 : "${MAIL_CMD:=sendmail}"
+: "${MSMTP_CONFIG_FILE:=${HIDS_DATA_DIR}/msmtp.conf}"
+: "${SMTP_ACCOUNT:=gmail}"
+: "${SMTP_HOST:=smtp.gmail.com}"
+: "${SMTP_PORT:=587}"
+: "${SMTP_TLS:=on}"
+: "${SMTP_FROM:=${ALERT_EMAIL}}"
 : "${HIDS_HOSTNAME:=}"
 
 # =============================================================================
@@ -294,16 +301,77 @@ emit_alert() {
 # EMAIL NOTIFICATION
 # =============================================================================
 
+_mail_config_ready() {
+    [[ -n "${ALERT_EMAIL}" ]] || return 1
+    command -v "${MAIL_CMD}" >/dev/null 2>&1 || return 1
+
+    if [[ "${MAIL_CMD}" == "msmtp" && -n "${MSMTP_CONFIG_FILE:-}" ]]; then
+        [[ -r "${MSMTP_CONFIG_FILE}" ]] || return 1
+    fi
+
+    return 0
+}
+
+_send_mail_message() {
+    local recipient="$1" subject="$2" body="$3"
+    local from_addr="${SMTP_FROM:-${ALERT_EMAIL:-${recipient}}}"
+    local rc=0
+    local -a mail_cmd=("${MAIL_CMD}")
+
+    if ! command -v "${MAIL_CMD}" >/dev/null 2>&1; then
+        echo "[lib_utils] Warning: mail command not found: ${MAIL_CMD}" >&2
+        return 1
+    fi
+
+    if [[ "${MAIL_CMD}" == "msmtp" && -n "${MSMTP_CONFIG_FILE:-}" ]]; then
+        if [[ ! -r "${MSMTP_CONFIG_FILE}" ]]; then
+            echo "[lib_utils] Warning: msmtp config not found: ${MSMTP_CONFIG_FILE}" >&2
+            return 1
+        fi
+        mail_cmd+=("--file=${MSMTP_CONFIG_FILE}")
+    fi
+
+    if command -v timeout >/dev/null 2>&1; then
+        {
+            printf 'To: %s\n' "${recipient}"
+            printf 'From: %s\n' "${from_addr}"
+            printf 'Subject: %s\n' "${subject}"
+            printf 'Content-Type: text/plain; charset=UTF-8\n\n'
+            printf '%s\n' "${body}"
+        } | timeout "${EMAIL_SEND_TIMEOUT_SECONDS}s" "${mail_cmd[@]}" "${recipient}" >/dev/null 2>&1
+        rc=$?
+    else
+        {
+            printf 'To: %s\n' "${recipient}"
+            printf 'From: %s\n' "${from_addr}"
+            printf 'Subject: %s\n' "${subject}"
+            printf 'Content-Type: text/plain; charset=UTF-8\n\n'
+            printf '%s\n' "${body}"
+        } | "${mail_cmd[@]}" "${recipient}" >/dev/null 2>&1
+        rc=$?
+    fi
+
+    if [[ "${rc}" -eq 124 ]]; then
+        echo "[lib_utils] Warning: email alert timed out after ${EMAIL_SEND_TIMEOUT_SECONDS}s via ${MAIL_CMD}" >&2
+        return 1
+    fi
+
+    if [[ "${rc}" -ne 0 ]]; then
+        echo "[lib_utils] Warning: failed to send email via ${MAIL_CMD}" >&2
+        return 1
+    fi
+
+    return 0
+}
+
 _send_alert_email() {
     # Sends a plain-text email alert via MAIL_CMD.
     # Arguments: severity module event detail host timestamp
     local severity="$1" module="$2" event="$3" detail="$4" host="$5" ts="$6"
     local subject="[HIDS] ${severity}: ${event} on ${host}"
+    local body
 
-    {
-        printf 'To: %s\n' "${ALERT_EMAIL}"
-        printf 'Subject: %s\n' "${subject}"
-        printf 'Content-Type: text/plain\n\n'
+    body=$(
         printf 'HIDS Alert\n'
         printf '==========\n\n'
         printf 'Host:      %s\n' "${host}"
@@ -312,8 +380,156 @@ _send_alert_email() {
         printf 'Module:    %s\n' "${module}"
         printf 'Event:     %s\n' "${event}"
         printf 'Detail:    %s\n' "${detail}"
-    } | "${MAIL_CMD}" "${ALERT_EMAIL}" 2>/dev/null || \
-        echo "[lib_utils] Warning: failed to send email alert via ${MAIL_CMD}" >&2
+    )
+
+    _send_mail_message "${ALERT_EMAIL}" "${subject}" "${body}"
+}
+
+_prompt_yes_no() {
+    local prompt="$1"
+    local answer=""
+
+    if command -v gum >/dev/null 2>&1; then
+        gum confirm "${prompt}"
+        return $?
+    fi
+
+    read -r -p "${prompt} [y/N]: " answer
+    [[ "${answer}" =~ ^[Yy]$ ]]
+}
+
+_prompt_text() {
+    local prompt="$1" placeholder="${2:-}"
+    if command -v gum >/dev/null 2>&1; then
+        gum input --prompt "${prompt}: " --placeholder "${placeholder}"
+    else
+        local value=""
+        read -r -p "${prompt}: " value
+        printf '%s\n' "${value}"
+    fi
+}
+
+_prompt_secret() {
+    local prompt="$1"
+    if command -v gum >/dev/null 2>&1; then
+        gum input --password --prompt "${prompt}: "
+    else
+        local value=""
+        read -rsp "${prompt}: " value
+        printf '\n' >&2
+        printf '%s\n' "${value}"
+    fi
+}
+
+_hids_local_config_path() {
+    if [[ -n "${_HIDS_CONFIG_PATH:-}" && "${_HIDS_CONFIG_PATH}" == */config.conf ]]; then
+        printf '%s\n' "${_HIDS_CONFIG_PATH%config.conf}config.local.conf"
+        return
+    fi
+
+    printf '%s\n' "/etc/hids/config.local.conf"
+}
+
+_persist_email_setup() {
+    local email="$1" password="$2"
+    local config_local_path msmtp_file config_dir mail_dir
+
+    config_local_path=$(_hids_local_config_path)
+    msmtp_file="${MSMTP_CONFIG_FILE:-${HIDS_DATA_DIR}/msmtp.conf}"
+
+    config_dir=$(dirname "${config_local_path}")
+    if ! mkdir -p "${config_dir}" 2>/dev/null; then
+        echo "[lib_utils] Warning: cannot create config directory ${config_dir}" >&2
+        return 1
+    fi
+
+    mail_dir=$(dirname "${msmtp_file}")
+    if ! mkdir -p "${mail_dir}" 2>/dev/null; then
+        msmtp_file="${config_dir}/msmtp.conf"
+        mail_dir=$(dirname "${msmtp_file}")
+        mkdir -p "${mail_dir}" 2>/dev/null || return 1
+    fi
+
+    cat > "${config_local_path}" <<EOF
+ALERT_EMAIL="${email}"
+MAIL_CMD="msmtp"
+MSMTP_CONFIG_FILE="${msmtp_file}"
+SMTP_FROM="${email}"
+EOF
+    chmod 600 "${config_local_path}" 2>/dev/null || true
+
+    cat > "${msmtp_file}" <<EOF
+# Generated by HIDS interactive email setup
+defaults
+auth           on
+tls            ${SMTP_TLS:-on}
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+account        ${SMTP_ACCOUNT:-gmail}
+host           ${SMTP_HOST:-smtp.gmail.com}
+port           ${SMTP_PORT:-587}
+from           ${email}
+user           ${email}
+password       ${password}
+account default : ${SMTP_ACCOUNT:-gmail}
+EOF
+    chmod 600 "${msmtp_file}" 2>/dev/null || true
+
+    return 0
+}
+
+configure_email_interactively() {
+    local email password test_subject test_body
+
+    [[ -t 0 && -t 1 ]] || return 1
+
+    email=$(_prompt_text "Alert email" "you@example.com")
+    [[ -n "${email}" ]] || {
+        print_warn "Email setup skipped — no address entered"
+        return 1
+    }
+
+    password=$(_prompt_secret "App password")
+    [[ -n "${password}" ]] || {
+        print_warn "Email setup skipped — no password entered"
+        return 1
+    }
+
+    if ! _persist_email_setup "${email}" "${password}"; then
+        print_warn "Failed to save local email configuration"
+        return 1
+    fi
+
+    load_config "${_HIDS_CONFIG_PATH:-}"
+
+    test_subject="[HIDS] email configuration test"
+    test_body=$(printf 'HIDS email alerts are now configured for %s on %s.\n' "${ALERT_EMAIL}" "${_HIDS_HOST}")
+
+    if _send_mail_message "${ALERT_EMAIL}" "${test_subject}" "${test_body}"; then
+        print_ok "Email alerts configured for ${ALERT_EMAIL}"
+        print_ok "Test email sent successfully"
+        return 0
+    fi
+
+    print_warn "Email settings were saved, but the test email failed"
+    return 1
+}
+
+maybe_prompt_email_setup() {
+    local reason="${1:-missing}"
+    local prompt="Configure email alerts now for future runs?"
+
+    [[ -t 0 && -t 1 ]] || return 1
+
+    if [[ "${reason}" != "failed" ]] && _mail_config_ready; then
+        return 0
+    fi
+
+    if [[ "${reason}" == "failed" ]]; then
+        prompt="Email delivery failed. Reconfigure email alerts now?"
+    fi
+
+    _prompt_yes_no "${prompt}" || return 1
+    configure_email_interactively
 }
 
 # =============================================================================
@@ -386,11 +602,13 @@ flush_report() {
 
 load_config() {
     # Loads config.conf from the given path (or default locations).
-    # Safe: only reads KEY=VALUE lines, ignoring comments and blank lines.
+    # Then loads config.local.conf from the same location when present.
     # Usage: load_config [/path/to/config.conf]
     local config_path="${1:-}"
+    local path=""
+    local loaded_path=""
+    local override_path=""
 
-    # Default search order
     local search_paths=(
         "${config_path}"
         "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")/../config.conf"
@@ -401,19 +619,37 @@ load_config() {
     for path in "${search_paths[@]}"; do
         [[ -z "${path}" ]] && continue
         if [[ -f "${path}" && -r "${path}" ]]; then
-            # Source the config file directly — handles quoted values and continuation lines.
-            # We use a subshell to capture exports so we can selectively promote them.
-            # shellcheck source=/dev/null
-            set -a   # auto-export all variables set from here
+            set -a
             # shellcheck disable=SC1090
             source "${path}" 2>/dev/null || true
             set +a
-            return 0
+            loaded_path="${path}"
+            _HIDS_CONFIG_PATH="${path}"
+            break
         fi
     done
 
-    echo "[lib_utils] Warning: config.conf not found — using built-in defaults" >&2
-    return 1
+    if [[ -z "${loaded_path}" ]]; then
+        echo "[lib_utils] Warning: config.conf not found — using built-in defaults" >&2
+        return 1
+    fi
+
+    case "${loaded_path}" in
+        */config.conf)
+            override_path="${loaded_path%config.conf}config.local.conf"
+            ;;
+    esac
+
+    _HIDS_CONFIG_LOCAL_PATH=""
+    if [[ -n "${override_path}" && -f "${override_path}" && -r "${override_path}" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "${override_path}" 2>/dev/null || true
+        set +a
+        _HIDS_CONFIG_LOCAL_PATH="${override_path}"
+    fi
+
+    return 0
 }
 
 # =============================================================================
@@ -464,3 +700,5 @@ require_root() {
         exit 1
     fi
 }
+
+

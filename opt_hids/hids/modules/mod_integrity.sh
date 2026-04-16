@@ -11,6 +11,7 @@ load_config
 
 MOD="mod_integrity"
 _worst=0
+SUID_SCAN_TIMEOUT_SECONDS="${SUID_SCAN_TIMEOUT_SECONDS:-20}"
 _flag() { [[ "$1" -gt "${_worst}" ]] && _worst="$1" || true; }
 
 # =============================================================================
@@ -144,29 +145,50 @@ check_suid_binaries() {
     section_header "⚡ SUID/SGID Binary Audit"
 
     local bl_suid="${HIDS_DATA_DIR}/baseline/suid_binaries.list"
+    if [[ ! -f "${bl_suid}" ]]; then
+        info_box "$(badge INFO) No SUID baseline — run: baseline.sh --init"
+        return
+    fi
+
     local exclude_args=()
     for excl in ${SUID_SCAN_EXCLUDE}; do
         exclude_args+=(-path "${excl}" -prune -o)
     done
 
-    local current_suid
+    local current_suid scan_root scan_rc timed_out total_suid new_suid new_count=0
+    local alert_rows=()
     current_suid=$(mktemp)
-    find ${SUID_SCAN_PATHS} "${exclude_args[@]}" -perm /6000 -type f -print 2>/dev/null | \
-        sort > "${current_suid}"
+    timed_out=0
 
-    local total_suid
-    total_suid=$(wc -l < "${current_suid}")
+    for scan_root in ${SUID_SCAN_PATHS}; do
+        [[ -e "${scan_root}" ]] || continue
 
-    if [[ ! -f "${bl_suid}" ]]; then
-        info_box "$(badge INFO) No SUID baseline — ${total_suid} binaries found"
+        if command -v timeout >/dev/null 2>&1; then
+            if timeout "${SUID_SCAN_TIMEOUT_SECONDS}s" find "${scan_root}" -xdev "${exclude_args[@]}" -perm /6000 -type f -print >> "${current_suid}" 2>/dev/null; then
+                :
+            else
+                scan_rc=$?
+                if [[ "${scan_rc}" -eq 124 ]]; then
+                    timed_out=1
+                    break
+                fi
+            fi
+        else
+            find "${scan_root}" -xdev "${exclude_args[@]}" -perm /6000 -type f -print >> "${current_suid}" 2>/dev/null || true
+        fi
+    done
+
+    if [[ "${timed_out}" -eq 1 ]]; then
         rm -f "${current_suid}"
+        warn_box "$(badge REVIEW) SUID scan timed out after ${SUID_SCAN_TIMEOUT_SECONDS}s" \
+            "Reduce SUID_SCAN_PATHS or increase SUID_SCAN_TIMEOUT_SECONDS to complete this audit"
+        _flag 1
         return
     fi
 
-    local new_suid
+    sort -u "${current_suid}" -o "${current_suid}"
+    total_suid=$(wc -l < "${current_suid}")
     new_suid=$(comm -23 "${current_suid}" "${bl_suid}" 2>/dev/null || true)
-    local new_count=0
-    local alert_rows=()
 
     if [[ -n "${new_suid}" ]]; then
         while IFS= read -r bin; do
@@ -187,8 +209,8 @@ check_suid_binaries() {
 
     echo ""
     paste \
-        <(counter_box "Total SUID ⚡" "${total_suid}" "OK"    "binaries found") \
-        <(counter_box "New 🚨"        "${new_count}"  "$([ $new_count -eq 0 ] && echo OK || echo ALERT)" "new binaries") 2>/dev/null || true
+        <(counter_box "Total SUID ⚡" "${total_suid}" "OK" "binaries found") \
+        <(counter_box "New 🚨" "${new_count}" "$([ ${new_count} -eq 0 ] && echo OK || echo ALERT)" "new binaries") 2>/dev/null || true
     echo ""
 
     if [[ "${new_count}" -gt 0 ]]; then
@@ -444,3 +466,4 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main
     exit "${_worst}"
 fi
+
