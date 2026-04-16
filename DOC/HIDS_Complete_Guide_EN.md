@@ -446,8 +446,8 @@ sudo bash /opt/hids/modules/mod_users.sh
 ```
 
 **Session classification:**
-- `denis@login` → ✅ OK — Local physical session (keyboard/screen)
-- `denis@pts/2` from remote IP → ⚠️ REVIEW — Remote SSH session to monitor
+- `YOURNAME@login` → ✅ OK — Local physical session (keyboard/screen)
+- `YOURNAME@pts/2` from remote IP → ⚠️ REVIEW — Remote SSH session to monitor
 - Unknown remote IP → 🚨 ALERT — Untrusted remote session
 
 ---
