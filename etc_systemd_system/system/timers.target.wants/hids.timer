@@ -1,0 +1,10 @@
+[Unit]
+Description=HIDS scan every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=hids.service
+
+[Install]
+WantedBy=timers.target

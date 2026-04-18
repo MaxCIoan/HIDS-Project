@@ -11,3 +11,17 @@ var_lib_hids/hids/network_baseline/
 var_lib_hids/hids/alert_state.db
 var_log_hids/hids/alerts.json
 var_log_hids/hids/report.txt
+# Exclude all systemd except hids files
+etc_systemd_system/systemd/system/snap*
+etc_systemd_system/systemd/system/*target*
+etc_systemd_system/systemd/system/cloud*
+etc_systemd_system/systemd/system/dbus*
+etc_systemd_system/systemd/system/display*
+etc_systemd_system/systemd/system/ssh*
+etc_systemd_system/systemd/system/sssd*
+etc_systemd_system/systemd/system/syslog*
+etc_systemd_system/systemd/system/sysstat*
+etc_systemd_system/systemd/system/vmtools*
+etc_systemd_system/systemd/*.conf
+etc_systemd_system/systemd/user*
+etc_systemd_system/systemd/system-generators/
